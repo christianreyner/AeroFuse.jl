@@ -13,16 +13,16 @@ using Setfield
 #==========================================================================================#
 
 # Math tools
-import ..MathTools: weighted_vector, structtolist
+import ..MathTools: weighted_vector, structtolist, Point3D
 
 # Panel geometry
-import ..PanelGeometry: Panel3D, panel_area, panel_coordinates, midpoint, normal_vector, transform, p1, p2, p3, p4, average_chord, average_width
+import ..PanelGeometry: Panel3D, panel_area, panel_coordinates, midpoint, panel_normal, p1, p2, p3, p4, average_chord, average_width
 
 # Non-dimensionalization
 import ..NonDimensional: dynamic_pressure, aerodynamic_coefficients, force_coefficient, moment_coefficient, rate_coefficient
 
 # Some tools
-import ..Laplace: cartesian_to_freestream, freestream_to_cartesian
+import ..Laplace: AbstractFreestream, Freestream, cartesian_to_freestream, freestream_to_cartesian, body_frame_velocity
 
 import ..AeroMDAO: velocity, solve_system, solve_linear, solve_nonlinear, solve_nonlinear!, surface_velocities, surface_coefficients, collocation_point
 

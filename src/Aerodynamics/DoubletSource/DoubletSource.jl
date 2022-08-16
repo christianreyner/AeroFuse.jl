@@ -8,15 +8,19 @@ import Base.Iterators: product
 using StaticArrays
 import SplitApplyCombine: combinedimsview
 
-import ..MathTools: rotation, inverse_rotation, midpair_map
+import ..MathTools: rotation, inverse_rotation, midpair_map, Point3D
 
-import ..Laplace: Uniform2D, magnitude, angle, velocity
+import ..Laplace: Uniform2D, magnitude, angle, velocity, Freestream
 
 import ..NonDimensional: pressure_coefficient
 
-import ..PanelGeometry: AbstractPanel2D, Panel2D, WakePanel2D, collocation_point, transform_panel, affine_2D, panel_length, panel_angle, tangent_vector, normal_vector, distance, wake_panel, wake_panels, panel_points, panel_vector
+import ..PanelGeometry: AbstractPanel2D, Panel2D, WakePanel2D, collocation_point, p1, p2, p3, p4, transform_panel, get_transformation, affine_2D, panel_length, panel_angle, panel_tangent, panel_normal, distance, wake_panel, wake_panels, panel_points, panel_vector, AbstractPanel3D, Panel3D, WakePanel3D, panel_coordinates, midpoint, xs, ys, zs, panel_area
+
+import ..AircraftGeometry: Wing, projected_area
 
 import ..AeroMDAO: solve_system, surface_velocities, surface_coefficients
+
+include("singularities3D.jl")
 
 ## Doublet-source Dirichlet boundary condition
 #===========================================================================#
@@ -38,12 +42,22 @@ function doublet_influence(panel_j :: AbstractPanel2D, panel_i :: AbstractPanel2
     ifelse(panel_i == panel_j, 0.5, doublet_potential(1., xp, yp, 0., panel_length(panel_j)))
 end
 
+function doublet_influence(panel_j :: AbstractPanel3D, panel_i :: AbstractPanel3D)
+    panel, point = transform_panel(panel_j, panel_i)
+    ifelse(panel_i == panel_j, 0.5, quadrilateral_doublet_potential(panel, point))
+end
+
 function source_influence(panel_j :: AbstractPanel2D, panel_i :: AbstractPanel2D)
     xp, yp = transform_panel(panel_j, panel_i)
     source_potential(1., xp, yp, 0., panel_length(panel_j))
 end
 
-boundary_condition(panel_j :: AbstractPanel2D, panel_i :: AbstractPanel2D, u) = -source_influence(panel_j, panel_i) * dot(u, normal_vector(panel_j))
+function source_influence(panel_j :: AbstractPanel3D, panel_i :: AbstractPanel3D)
+    panel, point = transform_panel(panel_j, panel_i)
+    quadrilateral_source_potential(1., panel, point)
+end
+
+boundary_condition(panel_j :: AbstractPanel2D, panel_i :: AbstractPanel2D, u) = -source_influence(panel_j, panel_i) * dot(u, panel_normal(panel_j))
 
 ## Aerodynamic coefficients
 #===========================================================================#
@@ -77,9 +91,26 @@ struct DoubletSourceSystem{T <: Real, M <: AbstractMatrix{T}, N <: AbstractVecto
     freestream         :: P
 end
 
+struct DoubletSourceSystem3D{T <: Real, M <: AbstractMatrix{T}, N <: AbstractArray{T}, O <: AbstractMatrix{<: AbstractPanel3D}, R <: AbstractArray{<: WakePanel3D}, P <: Freestream}
+    influence_matrix   :: M
+    boundary_condition :: N
+    singularities      :: N
+    surface_panels     :: O
+    wake_panels        :: R
+    freestream         :: P
+	Umag			   :: T
+end
+
 function Base.show(io :: IO, sys :: DoubletSourceSystem)
     println(io, "DoubletSourceSystem —")
     println(io, length(sys.surface_panels), " ", eltype(sys.surface_panels), " Elements")
+end
+
+function Base.show(io :: IO, sys :: DoubletSourceSystem3D)
+    println(io, "---------------- DoubletSourceSystem3D ----------------")
+    println(io, "Freestream velocity:   ", sys.Umag * velocity(sys.freestream))
+    println(io, "Panels:                ", size(sys.surface_panels), " of type ", eltype(sys.surface_panels))
+    println(io, "Wake panels:           ", size(sys.wake_panels), " of type ", eltype(sys.wake_panels))
 end
 
 function solve_system(panels, uni :: Uniform2D, sources :: Bool, wake_length)
@@ -115,7 +146,7 @@ function solve_system(panels, uni :: Uniform2D, sources :: Bool, wake_length)
     # cls, cms, cps, cl_wake
 end
 
-function solve_system(panels, uni :: Uniform2D, num_wake :: Integer, wake_length)
+function solve_system(panels :: AbstractArray{<:AbstractPanel2D}, uni :: Uniform2D, num_wake :: Integer, wake_length)
     u, α  = velocity(uni), uni.angle
 
     wake_pan = wake_panel(panels, wake_length, α)
@@ -126,6 +157,19 @@ function solve_system(panels, uni :: Uniform2D, num_wake :: Integer, wake_length
 
     DoubletSourceSystem(AIC, boco, φs, panels, wake_pan, uni)
 end
+
+function solve_system(surf_pans :: AbstractMatrix{<:AbstractPanel3D}, U, fs :: Freestream, wake_length)
+	wake_pans = wake_panel.(eachcol(surf_pans[:,2:end-1]), wake_length, fs.alpha, fs.beta)
+	φs, AIC, boco = solve_linear(surf_pans, U, fs, wake_pans)
+	return DoubletSourceSystem3D(AIC, boco, φs, surf_pans, wake_pans, fs, U)
+end
+
+function solve_system_neumann(surf_pans :: AbstractMatrix{<:AbstractPanel3D}, U, fs :: Freestream, wake_length)
+	wake_pans = wake_panel.(eachcol(surf_pans[:,2:end-1]), wake_length, fs.alpha, fs.beta)
+	φs, AIC, boco = solve_linear_neumann(surf_pans, U, fs, wake_pans)
+	return DoubletSourceSystem3D(AIC, boco, φs, surf_pans, wake_pans, fs, U)
+end
+
 
 function surface_velocities(prob :: DoubletSourceSystem)
     # Panel properties
@@ -152,6 +196,99 @@ function surface_coefficients(prob :: DoubletSourceSystem)
     cms  = @. -cls * xs * cos(prob.freestream.angle)
 
     cls, cms, cps
+end
+
+@views function surface_velocities(prob :: DoubletSourceSystem3D)
+    # make_tuple(a, b) = (a, b)
+
+    # ps = prob.surface_panels
+    # npancd, npansp = size(ps)
+    # npanf = npancd * npansp
+
+    # φs = permutedims(reshape(prob.singularities[1:npanf], npansp, npancd))
+    # clpts = collocation_point.(ps)
+    # xpair = midpair_map(make_tuple, clpts; dims=1)
+    # ypair = midpair_map(make_tuple, clpts; dims=2)
+    # φxpair = midpair_map(make_tuple, φs; dims=1)
+    # φypair = midpair_map(make_tuple, φs; dims=2)
+
+    # vxs, vys = zeros(npancd, npansp), zeros(npancd, npansp)  
+    # V∞ = prob.Umag * velocity(prob.freestream)
+
+    # for i=1:npancd
+    #     for j=1:npansp
+    #         tr = get_transformation(ps[i,j])
+    #         nbx1, nbx2 = tr.(xpair[i,j])
+    #         nby1, nby2 = tr.(ypair[i,j])
+    #         φnbx1, φnbx2 = φxpair[i,j]
+    #         φnby1, φnby2 = φypair[i,j]
+
+    #         vx = -(φnbx1 - φnbx2) / (nbx1.x - nbx2.x)
+
+    #         vyt = (φnby1 - φnby2) / norm(nby1.y - nby2.y, nby1.x - nby2.x)
+    #         vy = -(vyt - vx * (nby1.x - nby2.x)) / (nby1.y - nby2.y)
+
+    #         vxs[i,j] = vx + tr(V∞).x
+    #         vys[i,j] = vy + tr(V∞).y
+    #     end
+    # end
+
+    # return vxs, vys
+
+    ps = permutedims(prob.surface_panels)[:]
+    allps = [ps; prob.wake_panels]
+
+    # Due to influence
+    dvm = doublet_velocity_matrix(ps, allps)
+    vs = dvm * prob.singularities .+ Ref(prob.Umag * velocity(prob.freestream))
+    npancd, npansp = size(prob.surface_panels)
+    npanf = npancd * npansp
+    vs = permutedims(reshape(vs, npansp, npancd))
+
+    # Due to principal value
+    φs = permutedims(reshape(prob.singularities[1:npanf], npansp, npancd))
+    rs = collocation_point.(prob.surface_panels)
+    ns = panel_normal.(prob.surface_panels)
+
+    rso = [permutedims(rs[1,:]); rs[1:end-2,:]; permutedims(rs[end-1,:])]
+    rno = [permutedims(rs[2,:]); rs[3:end,:]  ; permutedims(rs[end,:])  ]
+    rea = [rs[:,1]               rs[:,1:end-2]  rs[:,end-1] ]
+    rwe = [rs[:,2]               rs[:,3:end]    rs[:,end]   ]
+
+    φso = [permutedims(φs[1,:]); φs[1:end-2,:]; permutedims(φs[end-1,:])]
+    φno = [permutedims(φs[2,:]); φs[3:end,:]  ; permutedims(φs[end,:])  ]
+    φea = [φs[:,1]               φs[:,1:end-2]  φs[:,end-1] ]
+    φwe = [φs[:,2]               φs[:,3:end]    φs[:,end]   ]
+
+    ∇Γ = -((rwe .- rno) .* (φwe + φno) + (rso .- rwe) .* (φso + φwe) + (rea .- rso) .* (φea + φso) + (rno .- rea) .* (φno + φea)) .× ns ./ norm.((rno-rso) .× (rwe-rea))
+    ∇Γ[1,:] ./= 2
+    ∇Γ[end,:] ./= 2
+    vs -= ∇Γ/2
+
+    return vs
+end
+
+function surface_coefficients(prob :: DoubletSourceSystem3D, wing :: Wing)
+    # Panel properties
+    ps = prob.surface_panels
+    # rs = midpoint(ps)
+    ns = panel_normal.(ps)
+    As = panel_area.(ps) .* ns
+    A = projected_area(wing)
+
+    # Inviscid edge velocities
+    vs = surface_velocities(prob)
+
+    # Aerodynamic coefficients
+    CP = pressure_coefficient.(prob.Umag, vs)
+    CF  = -sum(CP .* As) / A
+    # Cm  = -sum(CP .* (rq .× As)) / A / cbar
+
+    cos, _, sin = velocity(prob.freestream)
+    CL = CF[3] * cos - CF[1] * sin
+    CD = CF[3] * sin + CF[1] * cos
+
+    CL, CD, CP
 end
 
 lift_coefficient(prob :: DoubletSourceSystem) = 2 * last(prob.singularities) / prob.freestream.magnitude

@@ -142,20 +142,14 @@ struct WingMesh{M <: AbstractWing, N <: Integer, P, Q, T} <: AbstractWing
 end
 
 """
-    WingMesh(
-             surface :: AbstractWing, 
-             n_span :: Vector{Integer}, n_chord :: Integer;
-             span_spacing :: AbstractSpacing = symmetric_spacing(surface)
-            )
+	WingMesh(surf :: AbstractWing, n_span :: AbstractVector{Integer}, n_chord :: Integer; chord_spacing :: AbstractSpacing = Cosine(), span_spacing :: Union{AbstractSpacing, Vector{<:AbstractSpacing}} = symmetric_spacing(surf))
 
-Define a container to generate meshes and panels for a given `AbstractWing` with a specified distribution of number of spanwise panels, and a number of chordwise panels.
-
-Optionally a combination of `AbstractSpacing` types (`Sine(), Cosine(), Uniform()`) can be provided to the **named argument** `span_spacing`, either as a singleton or as a vector with length equal to the number of spanwise sections. By default, the combination is `[Sine(), Cosine(), ..., Cosine()]`.
+Create a WingMesh with (n_chord - 1) * 2 chordwise panels from TE-LE-TE and (n_span * 2) spanwise panels.
 """
-function WingMesh(surface :: M, n_span :: AbstractVector{N}, n_chord :: N; chord_spacing :: P = Cosine(), span_spacing :: Q = symmetric_spacing(surface)) where {M <: AbstractWing, N <: Integer, P <: AbstractSpacing, Q <: Union{AbstractSpacing, Vector{<:AbstractSpacing}}}
-    check_definition(surface, n_span)
-    chord_mesh  = chord_coordinates(surface, n_span, n_chord; spacings = span_spacing)
-    camber_mesh = camber_coordinates(surface, n_span, n_chord; spacings = span_spacing)
+function WingMesh(surf :: M, n_span :: AbstractVector{N}, n_chord :: N; chord_spacing :: P = Cosine(), span_spacing :: Q = symmetric_spacing(surf)) where {M <: AbstractWing, N <: Integer, P <: AbstractSpacing, Q <: Union{AbstractSpacing, Vector{<:AbstractSpacing}}}
+    check_definition(surf, n_span)
+    chord_mesh  = chord_coordinates(surf, n_span, n_chord; spacings = span_spacing)
+    camber_mesh = camber_coordinates(surf, n_span, n_chord; spacings = span_spacing)
     T = promote_type(eltype(chord_mesh), eltype(camber_mesh))
     WingMesh{M,N,P,Q,T}(surface, n_span, n_chord, chord_spacing, span_spacing, chord_mesh, camber_mesh)
 end
@@ -166,9 +160,11 @@ check_definition(surf :: HalfWing, n_span) = @assert length(n_span) == length(su
 check_definition(surf :: Wing, n_span) = @assert length(n_span) == length(surf.right.spans) == length(surf.left.spans) "The spanwise number vector's length must be the same as the number of sections of the surface."
 
 ##
-"""
-    chord_coordinates(wing :: WingMesh, n_span = wing.num_span, n_chord = wing.num_chord)
+chord_coordinates(wing :: WingMesh, n_span = wing.num_span, n_chord = wing.num_chord) = chord_coordinates(wing.surf, n_span, n_chord, spacings = wing.span_spacing)
+camber_coordinates(wing :: WingMesh, n_span = wing.num_span, n_chord = wing.num_chord) = camber_coordinates(wing.surf, n_span, n_chord, spacings = wing.span_spacing)
+surface_coordinates(wing :: WingMesh, n_span = wing.num_span, n_chord = wing.num_chord) = surface_coordinates(wing.surf, n_span, n_chord, spacings = wing.span_spacing)
 
+"""
 Generate the chord coordinates of a `WingMesh` with default spanwise ``n_s`` and chordwise ``n_c`` panel distributions from the mesh.
 """
 chord_coordinates(wing :: WingMesh, n_span = wing.num_span, n_chord = wing.num_chord) = chord_coordinates(wing.surface, n_span, n_chord)

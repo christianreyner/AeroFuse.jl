@@ -53,11 +53,11 @@ Define a horseshoe vortex with a start and endpoints ``r₁, r₂`` for the boun
 
 The finite core setup is not implemented for now.
 """
-struct Horseshoe{T <: Real} <: AbstractVortex
-    r1                :: SVector{3,T}
-    r2                :: SVector{3,T}
-    collocation_point :: SVector{3,T}
-    normal            :: SVector{3,T}
+struct Horseshoe{T <: Real} <: AbstractVortexArray
+    r1                :: Point3D{T}
+    r2                :: Point3D{T}
+    collocation_point :: Point3D{T}
+    normal            :: Point3D{T}
     core              :: T
 end
 
