@@ -36,9 +36,14 @@ function transform_panel_points(panel_1 :: AbstractPanel2D, panel_2 :: AbstractP
     xp1, yp1, xp2, yp2
 end
 
-function transform_panel(panel :: AbstractPanel2D, x, y)
-    xs, ys = panel.p1
-    affine_2D(x, y, xs, ys, panel_angle(panel))
+"""
+    transform_panel(panel :: AbstractPanel2D, point :: SVector{2,<: Real})
+
+Transform point from GCS into panel LCS.
+"""
+function transform_panel(panel :: AbstractPanel2D, point :: SVector{2,<: Real})
+    xs, ys = p1(panel)
+    affine_2D(first(point), last(point), xs, ys, panel_angle(panel))
 end
 
 transform_panel(panel :: AbstractPanel2D, point :: SVector{2,<: Real}) = transform_panel(panel, point.x, point.y)
@@ -63,39 +68,19 @@ reverse_panel(panel :: AbstractPanel2D) = Panel2D(panel.p2, panel.p1)
 
 trailing_edge_panel(panels) = Panel2D((p2 ∘ last)(panels), (p1 ∘ first)(panels))
 
-bisector(f_pan, l_pan) = (normalize(panel_vector(l_pan)) + normalize(-panel_vector(f_pan))) / 2
-
-function trailing_edge_info(panels)
-    # Make trailing edge
-    te_panel  = trailing_edge_panel(panels)
-    s    = panel_vector(reverse_panel(te_panel))
-    p    = normalize(s)
-
-    t1 = -normalize(panel_vector(panels[1]))
-    t2 = normalize(panel_vector(panels[end]))
-    t  = normalize((t1 + t2) / 2)
-
-    h_TE = -s[1] * t[2] + s[2] * t[1]
-    tcp  = abs(t[1] * p[2] - t[2] * p[1])
-    tdp  = dot(p, t)
-    dtdx = t1[1] * t2[2] - t2[1] * t1[2]
-
-    te_panel, h_TE, tcp, tdp, dtdx
-end
-
-function wake_panel(panels, bound, α)
-    _, firsty        = (p1 ∘ first)(panels)
+function wake_panel(panels :: AbstractArray{<: AbstractPanel2D}, bound, α)
+    firstx, firsty   = (p1 ∘ first)(panels)
     lastx, lasty     = (p2 ∘ last)(panels)
     y_mid            = (firsty + lasty) / 2
     y_bound, x_bound = bound .* sincos(α)
     WakePanel2D(SVector(lastx, y_mid), SVector(x_bound * lastx, y_bound * y_mid))
 end
 
-function wake_panels(panels, chord, length, num)
-    _, firsty = (p1 ∘ first)(panels)
-    _, lasty  = (p2 ∘ last)(panels)
-    y_mid     = (firsty + lasty) / 2
-    bounds    = sine_spacing(chord + length / 2, length, num)
+function wake_panels(panels :: AbstractArray{<: AbstractPanel2D}, chord, length, num)
+    firstx, firsty  = (p1 ∘ first)(panels)
+    lastx, lasty    = (p2 ∘ last)(panels)
+    y_mid           = (firsty + lasty) / 2
+    bounds          = cosine_spacing(chord + length / 2, length, num)
     @. WakePanel2D(SVector(bounds[1:end-1], y_mid), SVector(bounds[2:end], y_mid))
 end
 
