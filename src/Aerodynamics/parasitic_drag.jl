@@ -110,7 +110,7 @@ function wetted_area_drag_coefficient(wing :: Wing, x_tr, ρ, V, M, μ, S_ref, n
     mean_chords = @views (wing.chords[1:end-1] + wing.chords[2:end]) / 2
 
     # Wetted areas for integration over averaged chords
-    S_wets = mean_chords .* spans(wing) ./ cos.(dihedrals(wing))
+    S_wets = mean_chords .* spans(wing) ./ cosd.(dihedrals(wing))
 
     K_fs = form_factor(wing, num) # Form factors
     fM = 1.34M^0.18  # Mach number correction
